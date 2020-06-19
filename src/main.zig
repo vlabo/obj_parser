@@ -1,6 +1,13 @@
 const std = @import("std");
 const process = std.process;
 const cpu = @import("cpu.zig");
+const expectEqual = @import("std").testing.expectEqual;
+const warn = @import("std").debug.warn;
+const Allocator = std.mem.Allocator;
+
+const File = std.fs.File;
+
+const command = @import("command.zig");
 
 const FileType = enum(u32) {
     object = 0x1,
@@ -16,72 +23,18 @@ const FileType = enum(u32) {
     kext_bundle = 0xB,
 };
 
-const CommandType = enum(u32) {
-    segment = 0x1, //  segment of this file to be mapped
-    symtab = 0x2, //  link-edit stab symbol table info
-    symseg = 0x3, //  link-edit gdb symbol table info (obsolete)
-    thread = 0x4, //  thread
-    unixthread = 0x5, //  unix thread (includes a stack)
-    loadfvmlib = 0x6, //  load a specified fixed VM shared library
-    idfvmlib = 0x7, //  fixed VM shared library identification
-    ident = 0x8, //  object identification info (obsolete)
-    fvmfile = 0x9, //  fixed VM file inclusion (internal use)
-    prepage = 0xa, //  prepage command (internal use)
-    dysymtab = 0xb, //  dynamic link-edit symbol table info
-    load_dylib = 0xc, //  load a dynamically linked shared library
-    id_dylib = 0xd, //  dynamically linked shared lib ident
-    load_dylinker = 0xe, //  load a dynamic linker
-    id_dylinker = 0xf, //  dynamic linker identification
-    prebound_dylib = 0x10, //  modules prebound for a dynamically
-
-    //   linked shared library
-    routines = 0x11, //  image routines
-    sub_framework = 0x12, //  sub framework
-    sub_umbrella = 0x13, //  sub umbrella
-    sub_client = 0x14, //  sub client
-    sub_library = 0x15, //  sub library
-    twolevel_hints = 0x16, //  two-level namespace lookup hints
-    prebind_cksum = 0x17, //  prebind checksum
-
-    load_weak_dylib = (0x18 | 0x80000000),
-
-    //load a dynamically linked shared library that is allowed to be missing (all symbols are weak imported).
-
-    segment_64 = 0x19, //  64-bit segment of this file to be mapped
-    routines_64 = 0x1a, //  64-bit image routines
-    uuid = 0x1b, //  the uuid
-    rpath = (0x1c | 0x80000000), //  runpath additions
-    code_signature = 0x1d, //  local of code signature
-    segment_split_info = 0x1e, //  local of info to split segments
-    reexport_dylib = (0x1f | 0x80000000), //  load and re-export dylib
-    lazy_load_dylib = 0x20, //  delay load of dylib until first use
-    encryption_info = 0x21, //  encrypted segment information
-    dyld_info = 0x22, //  compressed dyld information
-    dyld_info_only = (0x22 | 0x80000000), //  compressed dyld information only
-    version_min_macosx = 0x24, 
-    function_starts = 0x26,
-    main = (0x28 | 0x80000000),
-    data_in_code = 0x29,
-    soruce_version = 0x2A,
-};
-
 const Header = packed struct {
     magic: u32 = 0,
-    cpu_type: cpu.Type = cpu.Type.any,
+    cpu_type: cpu.Type = .any,
     cpu_sub_type: u32 = 0,
-    file_type: FileType = FileType.object,
+    file_type: FileType = .object,
     number_of_load_commands: u32 = 0,
     size_of_load_commands: u32 = 0,
     flags: u32 = 0,
     reserved: u32 = 0,
 };
 
-const LoadCommand = packed struct {
-    cmd_type: CommandType = CommandType.segment,
-    cmd_size: u32 = 0,
-};
-
-fn print_header(stdout: std.fs.File.OutStream, h: Header) !void {
+fn print_header(stdout: File.OutStream, h: Header) !void {
     try stdout.print(
         \\ Magic: 0x{x}
         \\ CPU Type: {}
@@ -113,8 +66,53 @@ pub fn main() anyerror!void {
     print_header(stdout, header) catch {};
     var i = header.number_of_load_commands;
     while (i > 0) : (i -= 1) {
-        var load_command = stream.readStruct(LoadCommand) catch LoadCommand{};
-        stdout.print(" - {}\n", .{load_command.cmd_type}) catch {};
-        stream.skipBytes(load_command.cmd_size - @sizeOf(LoadCommand)) catch {};
+        var cmdInt = stream.readIntNative(u32) catch 0;
+        var cmd = @intToEnum(command.Type, cmdInt);
+
+        switch(cmd) {
+                .segment_64 => {
+                    var segment = command.Segment64.read(stream) catch {
+                        @panic("Faild to read segment");
+                    };
+                    stdout.print("Segment 64 - {}\n", .{segment.segname}) catch {};
+                },
+                .symtab => {
+                    var segment = command.Symtab.read(stream) catch {
+                        @panic("Faild to read SegmentSymtab");
+                    };
+                    stdout.print("Symtab \n", .{}) catch {};
+                },
+                .dysymtab => {
+                    var segment = command.Dysymtab.read(stream) catch {
+                        @panic("Faild to read SegmentDysymtab");
+                    };
+                    stdout.print("Dysymtab \n", .{}) catch {};
+                },
+                .dyld_info_only => {
+                    var segment = command.DylibInfoOnly.read(stream) catch {
+                        @panic("Faild to read SegmentDylibInfoOnly");
+                    };
+                    stdout.print("SegmentDylibInfoOnly \n", .{}) catch {};
+                },
+                .load_dylinker => {
+                    var segment = command.LoadDylinker.read(stream, allocator) catch |err| {
+                        stdout.print("Error: {}", .{err}) catch {};
+                        @panic("Faild to read SegmentLoadDylinker");
+                    };
+                    defer segment.free(allocator);
+                    stdout.print("SegmentLoadDylinker - {} \n", .{segment.name}) catch {};
+                },
+                .undef => {
+                    stdout.print("Undefined command: {}\n", .{ cmdInt }) catch {};
+                },
+                else => {
+                    var size = stream.readIntNative(u32) catch {
+                        @panic("Faild to read size");
+                    };
+                    var sizeLeft = size - @sizeOf(command.Type) - @sizeOf(u32);
+                    stdout.print(" - {}\n", .{cmd}) catch {};
+                    stream.skipBytes(sizeLeft) catch {};
+                }
+            }
     }
 }

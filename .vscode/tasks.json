@@ -5,7 +5,7 @@
     "tasks": [
         {
             "label": "Zig build",
-            "type": "shell",
+            "type": "process",
             "group": {
                 "kind": "build",
                 "isDefault": true
