@@ -96,11 +96,56 @@ pub fn main() anyerror!void {
                 },
                 .load_dylinker => {
                     var segment = command.LoadDylinker.read(stream, allocator) catch |err| {
-                        stdout.print("Error: {}", .{err}) catch {};
+                        stdout.print("Error: {}\n", .{err}) catch {};
                         @panic("Faild to read SegmentLoadDylinker");
                     };
                     defer segment.free(allocator);
                     stdout.print("SegmentLoadDylinker - {} \n", .{segment.name}) catch {};
+                },
+                .version_min_macosx => {
+                    var segment = command.VersionMinMacOSX.read(stream) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read VersionMinMacOSX");
+                    };
+                    stdout.print("VersionMinMacOSX - {} \n", .{segment.version}) catch {};
+                },
+                .source_version => {
+                    var segment = command.SourceVersion.read(stream) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read SourceVersion");
+                    };
+                    stdout.print("SourceVersion - {} \n", .{segment.version}) catch {};
+                },
+                .main => {
+                    var segment = command.Main.read(stream) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read Main");
+                    };
+                    stdout.print("Main - {}\n", .{segment.entry_offset}) catch {};
+                },
+                .load_dylib => {
+                    var segment = command.LoadDlib.read(stream, allocator) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read LoadDlib");
+                    };
+                    defer segment.free(allocator);
+
+                    stdout.print("LoadDlib - {} \n", .{segment.name}) catch {};
+
+                },
+                .function_starts => {
+                    var segment = command.FunctionStarts.read(stream) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read FunctionStarts");
+                    };
+                    stdout.print("FunctionStarts", .{}) catch {};
+                },
+                .data_in_code => {
+                    var segment = command.DataInCode.read(stream) catch |err| {
+                        stdout.print("Error: {}\n", .{err}) catch {};
+                        @panic("Faild to read DataInCode");
+                    };
+                    stdout.print("DataInCode", .{}) catch {};
                 },
                 .undef => {
                     stdout.print("Undefined command: {}\n", .{ cmdInt }) catch {};

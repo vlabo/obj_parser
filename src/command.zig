@@ -49,7 +49,7 @@ pub const Type = enum(u32) {
     function_starts = 0x26,
     main = (0x28 | 0x80000000),
     data_in_code = 0x29,
-    soruce_version = 0x2A,
+    source_version = 0x2A,
 };
 
 pub const Segment64 = struct {
@@ -171,26 +171,26 @@ pub const DylibInfoOnly = struct {
     const Self = DylibInfoOnly;
 
     pub fn read(stream: File.Reader) !Self {
-        var self = Self{};
-        self.size = try stream.readIntNative(u32);
-        self.rebase_info_offset = try stream.readIntNative(u32);
-        self.rebase_info_size = try stream.readIntNative(u32);
-        self.binding_info_offset = try stream.readIntNative(u32);
-        self.binding_info_size = try stream.readIntNative(u32);
-        self.weak_binding_info_offset = try stream.readIntNative(u32);
-        self.weak_binding_info_size = try stream.readIntNative(u32);
-        self.lazy_binding_info_offset = try stream.readIntNative(u32);
-        self.lazy_binding_info_size = try stream.readIntNative(u32);
-        self.export_info_offset = try stream.readIntNative(u32);
-        self.export_info_size = try stream.readIntNative(u32);
-        return self;
+        return Self{
+            .size = try stream.readIntNative(u32),
+            .rebase_info_offset = try stream.readIntNative(u32),
+            .rebase_info_size = try stream.readIntNative(u32),
+            .binding_info_offset = try stream.readIntNative(u32),
+            .binding_info_size = try stream.readIntNative(u32),
+            .weak_binding_info_offset = try stream.readIntNative(u32),
+            .weak_binding_info_size = try stream.readIntNative(u32),
+            .lazy_binding_info_offset = try stream.readIntNative(u32),
+            .lazy_binding_info_size = try stream.readIntNative(u32),
+            .export_info_offset = try stream.readIntNative(u32),
+            .export_info_size = try stream.readIntNative(u32),
+        };
     }
 };
 
 pub const LoadDylinker = struct {
     cmd: Type = .load_dylinker,
-    size: u32 = 0,
-    name_offset: u32 = 0,
+    size: u32,
+    name_offset: u32,
     name: []u8,
 
     const Self = LoadDylinker;
@@ -208,6 +208,123 @@ pub const LoadDylinker = struct {
     }
 
     pub fn free(self: Self, allocator: *Allocator) void {
-        allocator.destroy(&self.name);
+        allocator.free(self.name);
+    }
+};
+
+pub const VersionMinMacOSX = struct {
+    cmd: Type = .version_min_macosx,
+    size: u32,
+    version: u32,
+    revision: u32,
+
+    const Self = VersionMinMacOSX;
+
+    pub fn read(stream: File.Reader) !Self {
+        return Self{
+            .size = try stream.readIntNative(u32),
+            .version = try stream.readIntNative(u32),
+            .revision = try stream.readIntNative(u32),
+        };
+    }
+};
+
+pub const SourceVersion = struct {
+    cmd: Type = .source_version,
+    size: u32,
+    version: u64,
+
+    const Self = SourceVersion;
+
+    pub fn read(stream: File.Reader) !Self {
+        return Self{
+            .size = try stream.readIntNative(u32),
+            .version = try stream.readIntNative(u64),
+        };
+    }
+};
+
+pub const Main = struct {
+    cmd: Type = .main,
+    size: u32,
+    entry_offset: u64,
+    stack_size: u64,
+
+    const Self = Main;
+
+    pub fn read(stream: File.Reader) !Self {
+        return Self{
+            .size = try stream.readIntNative(u32),
+            .entry_offset = try stream.readIntNative(u64),
+            .stack_size = try stream.readIntNative(u64),
+        };
+    }
+};
+
+pub const LoadDlib = struct {
+    cmd: Type = .load_dylib,
+    size: u32,
+    name_offset: u32,
+    timestamp: u32,
+    current_version: u32,
+    compatability_version: u32,
+    name: []u8,
+
+    const Self = LoadDlib;
+
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
+        const size = try stream.readIntNative(u32);
+        const name_offset = try stream.readIntNative(u32);
+        const timestamp = try stream.readIntNative(u32);
+        const current_version = try stream.readIntNative(u32);
+        const compatability_version = try stream.readIntNative(u32);
+        var name = try allocator.alloc(u8, size - name_offset);
+        _ = try stream.readAll(name);
+        return Self{
+            .size = size,
+            .name_offset = name_offset,
+            .timestamp = timestamp,
+            .current_version = current_version,
+            .compatability_version = compatability_version,
+            .name = name,
+        };
+    }
+
+    pub fn free(self: Self, allocator: *Allocator) void {
+        allocator.free(self.name);
+    }
+};
+
+pub const FunctionStarts = struct {
+    cmd: Type = .function_starts,
+    size: u32,
+    data_offset: u32,
+    data_size: u32,
+
+    const Self = FunctionStarts;
+
+    pub fn read(stream: File.Reader) !Self {
+        return Self {
+            .size = try stream.readIntNative(u32),
+            .data_offset = try stream.readIntNative(u32),
+            .data_size = try stream.readIntNative(u32),
+        };
+    }
+};
+
+pub const DataInCode = struct {
+    cmd: Type = .data_in_code,
+    size: u32,
+    data_offset: u32,
+    data_size: u32,
+
+    const Self = DataInCode;
+
+    pub fn read(stream: File.Reader) !Self {
+        return Self {
+            .size = try stream.readIntNative(u32),
+            .data_offset = try stream.readIntNative(u32),
+            .data_size = try stream.readIntNative(u32),
+        };
     }
 };
