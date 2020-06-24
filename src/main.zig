@@ -1,5 +1,6 @@
 const std = @import("std");
 const process = std.process;
+const log = std.log;
 const cpu = @import("cpu.zig");
 const expectEqual = @import("std").testing.expectEqual;
 const warn = @import("std").debug.warn;
@@ -8,6 +9,8 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 
 const command = @import("command.zig");
+
+pub const log_level: std.log.Level = .err;
 
 const FileType = enum(u32) {
     object = 0x1,
@@ -75,6 +78,16 @@ pub fn main() anyerror!void {
                         @panic("Faild to read segment");
                     };
                     stdout.print("Segment 64 - {}\n", .{segment.segname}) catch {};
+
+                    var sections_count = segment.number_of_sections;
+                    while(sections_count > 0) : (sections_count-=1) {
+                        var segment_header = command.Segment64Header.read(stream) catch {
+                            @panic("Failed to read segment header");
+                        };
+
+                        stdout.print("\t SegmentHeader - {}\n", .{segment_header.section_name}) catch {};
+                    }
+
                 },
                 .symtab => {
                     var segment = command.Symtab.read(stream) catch {
@@ -104,32 +117,32 @@ pub fn main() anyerror!void {
                 },
                 .version_min_macosx => {
                     var segment = command.VersionMinMacOSX.read(stream) catch |err| {
-                        stdout.print("Error: {}\n", .{err}) catch {};
+                        warn("Error: {}\n", .{err});
                         @panic("Faild to read VersionMinMacOSX");
                     };
                     stdout.print("VersionMinMacOSX - {} \n", .{segment.version}) catch {};
                 },
                 .source_version => {
                     var segment = command.SourceVersion.read(stream) catch |err| {
-                        stdout.print("Error: {}\n", .{err}) catch {};
+                        warn("Error: {}\n", .{err});
                         @panic("Faild to read SourceVersion");
                     };
                     stdout.print("SourceVersion - {} \n", .{segment.version}) catch {};
                 },
                 .main => {
                     var segment = command.Main.read(stream) catch |err| {
-                        stdout.print("Error: {}\n", .{err}) catch {};
+                        warn("Error: {}\n", .{@errorName(err)});
                         @panic("Faild to read Main");
                     };
                     stdout.print("Main - {}\n", .{segment.entry_offset}) catch {};
                 },
                 .load_dylib => {
                     var segment = command.LoadDlib.read(stream, allocator) catch |err| {
-                        stdout.print("Error: {}\n", .{err}) catch {};
+                        warn("Error: {}\n", .{err});
                         @panic("Faild to read LoadDlib");
                     };
                     defer segment.free(allocator);
-
+                    log.warn(.Debug, "Test\n", .{});
                     stdout.print("LoadDlib - {} \n", .{segment.name}) catch {};
 
                 },
@@ -138,14 +151,15 @@ pub fn main() anyerror!void {
                         stdout.print("Error: {}\n", .{err}) catch {};
                         @panic("Faild to read FunctionStarts");
                     };
-                    stdout.print("FunctionStarts", .{}) catch {};
+                    stdout.print("FunctionStarts\n", .{}) catch {};
                 },
                 .data_in_code => {
                     var segment = command.DataInCode.read(stream) catch |err| {
                         stdout.print("Error: {}\n", .{err}) catch {};
-                        @panic("Faild to read DataInCode");
+                        //std.log("Test");
+                        @panic("Faild to read DataInCoden");
                     };
-                    stdout.print("DataInCode", .{}) catch {};
+                    stdout.print("DataInCode\n", .{}) catch {};
                 },
                 .undef => {
                     stdout.print("Undefined command: {}\n", .{ cmdInt }) catch {};

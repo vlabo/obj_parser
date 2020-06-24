@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 
 pub const Type = enum(u32) {
-    undef =  0x0,
+    undef = 0x0,
     segment = 0x1, //  segment of this file to be mapped
     symtab = 0x2, //  link-edit stab symbol table info
     symseg = 0x3, //  link-edit gdb symbol table info (obsolete)
@@ -62,7 +62,7 @@ pub const Segment64 = struct {
     filesize: u64 = 0,
     maxprot: u32 = 0,
     initprot: u32 = 0,
-    nsects: u32 = 0,
+    number_of_sections: u32 = 0,
     flags: u32 = 0,
 
     const Self = Segment64;
@@ -77,10 +77,55 @@ pub const Segment64 = struct {
         self.filesize = try stream.readIntNative(u64);
         self.maxprot = try stream.readIntNative(u32);
         self.initprot = try stream.readIntNative(u32);
-        self.nsects = try stream.readIntNative(u32);
+        self.number_of_sections = try stream.readIntNative(u32);
         self.flags = try stream.readIntNative(u32);
-        try stream.skipBytes(self.size - @sizeOf(Self));
+        // try stream.skipBytes(self.size - @sizeOf(Self));
         return self;
+    }
+};
+
+pub const Segment64Header = struct {
+    section_name: [16]u8,
+    segment_name: [16]u8,
+    address: u64,
+    size: u64,
+    offset: u32,
+    alignment: u32,
+    relocations_offset: u32,
+    number_of_relocations: u32,
+    flags: u32,
+    reserved: [12]u8,
+
+    const Self = Segment64Header;
+
+    pub fn read(stream: File.Reader) !Self {
+        var section_name = [_]u8{0} ** 16;
+        var segment_name = [_]u8{0} ** 16;
+        _ = try stream.readAll(&section_name);
+        _ = try stream.readAll(&segment_name);
+
+        var address = try stream.readIntNative(u64);
+        var size = try stream.readIntNative(u64);
+        var offset = try stream.readIntNative(u32);
+        var alignment = try stream.readIntNative(u32);
+        var relocations_offset = try stream.readIntNative(u32);
+        var number_of_relocations = try stream.readIntNative(u32);
+        var flags = try stream.readIntNative(u32);
+        var reserved = [_]u8{0} ** 12;
+        _ = try stream.readAll(&reserved);
+
+        return Self{
+            .section_name = section_name,
+            .segment_name = segment_name,
+            .address = address,
+            .size = size,
+            .offset = offset,
+            .alignment = alignment,
+            .relocations_offset = relocations_offset,
+            .number_of_relocations = number_of_relocations,
+            .flags = flags,
+            .reserved = reserved,
+        };
     }
 };
 
@@ -200,7 +245,7 @@ pub const LoadDylinker = struct {
         var name_offset = try stream.readIntNative(u32);
         var name = try allocator.alloc(u8, size - name_offset);
         _ = try stream.readAll(name);
-        return Self {
+        return Self{
             .size = size,
             .name_offset = name_offset,
             .name = name,
@@ -304,7 +349,7 @@ pub const FunctionStarts = struct {
     const Self = FunctionStarts;
 
     pub fn read(stream: File.Reader) !Self {
-        return Self {
+        return Self{
             .size = try stream.readIntNative(u32),
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
@@ -321,7 +366,7 @@ pub const DataInCode = struct {
     const Self = DataInCode;
 
     pub fn read(stream: File.Reader) !Self {
-        return Self {
+        return Self{
             .size = try stream.readIntNative(u32),
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
