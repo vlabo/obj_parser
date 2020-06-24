@@ -34,7 +34,7 @@ pub const Type = enum(u32) {
 
     //load a dynamically linked shared library that is allowed to be missing (all symbols are weak imported).
 
-    segment_64 = 0x19, //  64-bit segment of this file to be mapped
+    segment64 = 0x19, //  64-bit segment of this file to be mapped
     routines_64 = 0x1a, //  64-bit image routines
     uuid = 0x1b, //  the uuid
     rpath = (0x1c | 0x80000000), //  runpath additions
@@ -53,7 +53,7 @@ pub const Type = enum(u32) {
 };
 
 pub const Segment64 = struct {
-    cmd: Type = .segment_64,
+    cmd: Type = .segment64,
     size: u32 = 0,
     segname: [16]u8 = [_]u8{0} ** 16,
     vmaddr: u64 = 0,
@@ -370,6 +370,24 @@ pub const DataInCode = struct {
             .size = try stream.readIntNative(u32),
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
+        };
+    }
+};
+
+pub const UUID = struct {
+    cmd: Type = .uuid,
+    size: u32,
+    uuid: [16]u8,
+
+    const Self = UUID;
+
+    pub fn read(stream: File.Reader) !Self {
+        var size = try stream.readIntNative(u32);
+        var uuid = [_]u8{0} ** 16;
+        _ = try stream.readAll(&uuid);
+        return Self{
+            .size = size,
+            .uuid = uuid,
         };
     }
 };
