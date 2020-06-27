@@ -54,33 +54,54 @@ pub const Type = enum(u32) {
 
 pub const Segment64 = struct {
     cmd: Type = .segment64,
-    size: u32 = 0,
-    segname: [16]u8 = [_]u8{0} ** 16,
-    vmaddr: u64 = 0,
-    vmsize: u64 = 0,
-    fileoff: u64 = 0,
-    filesize: u64 = 0,
-    maxprot: u32 = 0,
-    initprot: u32 = 0,
-    number_of_sections: u32 = 0,
-    flags: u32 = 0,
-
+    size: u32,
+    segment_name: [16]u8,
+    vmaddr: u64,
+    vmsize: u64,
+    fileoff: u64,
+    filesize: u64,
+    maxprot: u32,
+    initprot: u32,
+    number_of_sections: u32,
+    flags: u32,
+    sections: []Segment64Header,
     const Self = Segment64;
 
-    pub fn read(stream: File.Reader) !Self {
-        var self = Self{};
-        self.size = try stream.readIntNative(u32);
-        _ = try stream.readAll(&self.segname);
-        self.vmaddr = try stream.readIntNative(u64);
-        self.vmsize = try stream.readIntNative(u64);
-        self.fileoff = try stream.readIntNative(u64);
-        self.filesize = try stream.readIntNative(u64);
-        self.maxprot = try stream.readIntNative(u32);
-        self.initprot = try stream.readIntNative(u32);
-        self.number_of_sections = try stream.readIntNative(u32);
-        self.flags = try stream.readIntNative(u32);
-        // try stream.skipBytes(self.size - @sizeOf(Self));
-        return self;
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
+        var size = try stream.readIntNative(u32);
+        var segment_name = [1]u8 {0} ** 16;
+        _ = try stream.readAll(&segment_name);
+        var vmaddr = try stream.readIntNative(u64);
+        var vmsize = try stream.readIntNative(u64);
+        var fileoff = try stream.readIntNative(u64);
+        var filesize = try stream.readIntNative(u64);
+        var maxprot = try stream.readIntNative(u32);
+        var initprot = try stream.readIntNative(u32);
+        var number_of_sections = try stream.readIntNative(u32);
+        var flags = try stream.readIntNative(u32);
+        var sections = try allocator.alloc(Segment64Header, number_of_sections);
+        var i: u32 = 0;
+        while(i < number_of_sections) : (i+=1) {
+           sections[i] = try Segment64Header.read(stream, allocator);
+        }
+
+        return Self{
+            .size = size,
+            .segment_name = segment_name,
+            .vmaddr = vmaddr,
+            .vmsize = vmsize,
+            .fileoff = fileoff,
+            .filesize = filesize,
+            .maxprot = maxprot,
+            .initprot = initprot,
+            .number_of_sections = number_of_sections,
+            .flags = flags,
+            .sections = sections,
+        };
+    }
+
+    pub fn free(self: Self, allocator: *Allocator) void {
+        allocator.free(self.sections);
     }
 };
 
@@ -98,7 +119,7 @@ pub const Segment64Header = struct {
 
     const Self = Segment64Header;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         var section_name = [_]u8{0} ** 16;
         var segment_name = [_]u8{0} ** 16;
         _ = try stream.readAll(&section_name);
@@ -126,7 +147,9 @@ pub const Segment64Header = struct {
             .flags = flags,
             .reserved = reserved,
         };
-    }
+    } 
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const Symtab = struct {
@@ -139,7 +162,7 @@ pub const Symtab = struct {
 
     const Self = Symtab;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         var self = Self{};
         self.size = try stream.readIntNative(u32);
         self.symoff = try stream.readIntNative(u32);
@@ -148,6 +171,8 @@ pub const Symtab = struct {
         self.strsize = try stream.readIntNative(u32);
         return self;
     }
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const Dysymtab = struct {
@@ -174,7 +199,7 @@ pub const Dysymtab = struct {
 
     const Self = Dysymtab;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         var self = Self{};
         self.cmdsize = try stream.readIntNative(u32);
         self.ilocalsym = try stream.readIntNative(u32);
@@ -196,7 +221,9 @@ pub const Dysymtab = struct {
         self.locreloff = try stream.readIntNative(u32);
         self.nlocrel = try stream.readIntNative(u32);
         return self;
-    }
+    } 
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const DylibInfoOnly = struct {
@@ -215,7 +242,7 @@ pub const DylibInfoOnly = struct {
 
     const Self = DylibInfoOnly;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .rebase_info_offset = try stream.readIntNative(u32),
@@ -230,6 +257,8 @@ pub const DylibInfoOnly = struct {
             .export_info_size = try stream.readIntNative(u32),
         };
     }
+ 
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const LoadDylinker = struct {
@@ -265,13 +294,15 @@ pub const VersionMinMacOSX = struct {
 
     const Self = VersionMinMacOSX;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .version = try stream.readIntNative(u32),
             .revision = try stream.readIntNative(u32),
         };
     }
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const SourceVersion = struct {
@@ -281,12 +312,14 @@ pub const SourceVersion = struct {
 
     const Self = SourceVersion;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .version = try stream.readIntNative(u64),
         };
-    }
+    } 
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const Main = struct {
@@ -297,13 +330,15 @@ pub const Main = struct {
 
     const Self = Main;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .entry_offset = try stream.readIntNative(u64),
             .stack_size = try stream.readIntNative(u64),
         };
     }
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const LoadDlib = struct {
@@ -348,13 +383,15 @@ pub const FunctionStarts = struct {
 
     const Self = FunctionStarts;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
         };
-    }
+    } 
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const DataInCode = struct {
@@ -365,13 +402,15 @@ pub const DataInCode = struct {
 
     const Self = DataInCode;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         return Self{
             .size = try stream.readIntNative(u32),
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
         };
-    }
+    } 
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const UUID = struct {
@@ -381,7 +420,7 @@ pub const UUID = struct {
 
     const Self = UUID;
 
-    pub fn read(stream: File.Reader) !Self {
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         var size = try stream.readIntNative(u32);
         var uuid = [_]u8{0} ** 16;
         _ = try stream.readAll(&uuid);
@@ -390,4 +429,6 @@ pub const UUID = struct {
             .uuid = uuid,
         };
     }
+
+    pub fn free(self: Self, allocator: *Allocator) void {}
 };

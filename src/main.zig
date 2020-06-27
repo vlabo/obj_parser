@@ -5,10 +5,11 @@ const cpu = @import("cpu.zig");
 const expectEqual = @import("std").testing.expectEqual;
 const warn = @import("std").debug.warn;
 const Allocator = std.mem.Allocator;
+const Vector = std.meta.Vector;
 
 const File = std.fs.File;
 
-const command = @import("command.zig");
+const Command = @import("command.zig");
 
 pub const log_level: std.log.Level = .err;
 
@@ -52,6 +53,81 @@ fn print_header(stdout: File.OutStream, h: Header) !void {
     , .{ h.magic, h.cpu_type, h.cpu_sub_type, h.file_type, h.number_of_load_commands, h.size_of_load_commands, h.flags });
 }
 
+const ObjFile = struct {
+    header: Header,
+    load_commands: []usize,
+
+    const Self = ObjFile;
+    fn read(stream: File.Reader, allocator: *Allocator) !Self {
+        var header = try stream.readStruct(Header);
+        var i: u32 = 0;
+        var load_commands = try allocator.alloc(usize, header.number_of_load_commands);
+
+        while (i < header.number_of_load_commands) : (i += 1) {
+            var cmdInt = try stream.readIntNative(u32);
+            var cmd = @intToEnum(Command.Type, cmdInt);
+            switch (cmd) {
+                .segment64 => {
+                    load_commands[i] = try Self.create_command(Command.Segment64, stream, allocator);
+                },
+                .symtab => {
+                    load_commands[i] = try Self.create_command(Command.Symtab, stream, allocator);
+                },
+                .dysymtab => {
+                    load_commands[i] = try Self.create_command(Command.Dysymtab, stream, allocator);
+                },
+                .dyld_info_only => {
+                    load_commands[i] = try Self.create_command(Command.DylibInfoOnly, stream, allocator);
+                },
+                .load_dylinker => {
+                    load_commands[i] = try Self.create_command(Command.LoadDylinker, stream, allocator);
+                },
+                .version_min_macosx => {
+                    load_commands[i] = try Self.create_command(Command.VersionMinMacOSX, stream, allocator);
+                },
+                .source_version => {
+                    load_commands[i] = try Self.create_command(Command.SourceVersion, stream, allocator);
+                },
+                .main => {
+                    load_commands[i] = try Self.create_command(Command.Main, stream, allocator);
+                },
+                .load_dylib => {
+                    load_commands[i] = try Self.create_command(Command.LoadDlib, stream, allocator);
+                },
+                .function_starts => {
+                    load_commands[i] = try Self.create_command(Command.FunctionStarts, stream, allocator);
+                },
+                .data_in_code => {
+                    load_commands[i] = try Self.create_command(Command.DataInCode, stream, allocator);
+                },
+                .uuid => {
+                    load_commands[i] = try Self.create_command(Command.UUID, stream, allocator);
+                },
+                else => {
+                    load_commands[i] = 0;
+                    var size = try stream.readIntNative(u32);
+                    try stream.skipBytes(size - 8);
+                },
+            }
+        }
+        return Self{
+            .header = header,
+            .load_commands = load_commands,
+        };
+    }
+
+    fn create_command(comptime command_type: type, stream: File.Reader, allocator: *Allocator) !usize {
+       var command = try allocator.create(command_type);
+       command.* = try command_type.read(stream, allocator);
+       return @ptrToInt(command);
+    }
+
+    fn free(self: Self, allocator: *Allocator) void {
+        // TODO: clear load commands
+        allocator.free(self.load_commands);
+    }
+};
+
 pub fn main() anyerror!void {
     const stdout = std.io.getStdOut().outStream();
 
@@ -67,123 +143,76 @@ pub fn main() anyerror!void {
         std.debug.panic(" Unable to open File: {}\n", .{err});
     };
 
-    // Header
     var stream = file.inStream();
-    var header = stream.readStruct(Header) catch Header{};
-    print_header(stdout, header) catch {};
+    var obj = try ObjFile.read(stream, allocator);
+    defer obj.free(allocator);
 
-    // Load Commands
-    stdout.print("Load Commands: \n", .{}) catch {};
-    var i = header.number_of_load_commands;
-    while (i > 0) : (i -= 1) {
-        var cmdInt = stream.readIntNative(u32) catch 0;
-        var cmd = @intToEnum(command.Type, cmdInt);
+    print_header(stdout, obj.header) catch {};
 
-        switch (cmd) {
-            .segment64 => {
-                var segment = command.Segment64.read(stream) catch {
-                    @panic("Faild to read segment");
-                };
+    for (obj.load_commands) |load_command| {
+        if (load_command != 0) {
+            var command_type = @intToPtr(*Command.Type, load_command);
 
-                stdout.print(" Segment 64 - {}\n", .{segment.segname}) catch {};
+            switch (command_type.*) {
+                .segment64 => {
+                    var command = @intToPtr(*Command.Segment64, load_command);
+                    stdout.print(" Segment 64 - {}\n", .{command.segment_name}) catch {};
 
-                var sections_count = segment.number_of_sections;
-                while (sections_count > 0) : (sections_count -= 1) {
-                    var segment_header = command.Segment64Header.read(stream) catch {
-                        @panic("Failed to read segment header");
-                    };
+                    var sections_count = command.number_of_sections;
+                    for (command.sections) |section| {
+                        stdout.print("\t SegmentHeader - {}\n", .{section.section_name}) catch {};
+                    }
+                },
+                .symtab => {
+                    var command = @intToPtr(*Command.Symtab, load_command);
+                    stdout.print(" Symtab \n", .{}) catch {};
+                },
+                .dysymtab => {
+                    var command = @intToPtr(*Command.Dysymtab, load_command);
+                    stdout.print(" Dysymtab \n", .{}) catch {};
+                },
+                .dyld_info_only => {
+                    var command = @intToPtr(*Command.DylibInfoOnly, load_command);
+                    stdout.print(" SegmentDylibInfoOnly \n", .{}) catch {};
+                },
+                .load_dylinker => {
+                    var command = @intToPtr(*Command.LoadDylinker, load_command); 
+                    stdout.print(" SegmentLoadDylinker - {} \n", .{command.name}) catch {};
+                },
+                .version_min_macosx => {
+                    var command = @intToPtr(*Command.VersionMinMacOSX, load_command);
+                    stdout.print(" VersionMinMacOSX - {} \n", .{command.version}) catch {};
+                },
+                .source_version => {
+                    var command = @intToPtr(*Command.SourceVersion, load_command);
+                    stdout.print(" SourceVersion - {} \n", .{command.version}) catch {};
+                },
+                .main => {
+                    var command = @intToPtr(*Command.Main, load_command);
+                    stdout.print(" Main - {}\n", .{command.entry_offset}) catch {};
+                },
+                .load_dylib => {
+                    var command = @intToPtr(*Command.LoadDlib,load_command);
+                    stdout.print(" LoadDlib - {} \n", .{command.name}) catch {};
+                },
+                .function_starts => {
+                    var command = @intToPtr(*Command.FunctionStarts, load_command);
+                    stdout.print(" FunctionStarts\n", .{}) catch {};
+                },
+                .data_in_code => {
+                    var command = @intToPtr(*Command.DataInCode, load_command);
+                    stdout.print(" DataInCode\n", .{}) catch {};
+                },
+                .uuid => {
+                    var command = @intToPtr(*Command.UUID, load_command);
+                    stdout.print(" UUID\n", .{}) catch {};
+                },
+                .undef => {
+                    std.debug.panic("Undefined command\n", .{});
+                },
 
-                    stdout.print("\t SegmentHeader - {}\n", .{segment_header.section_name}) catch {};
-                }
-            },
-            .symtab => {
-                var segment = command.Symtab.read(stream) catch {
-                    @panic("Faild to read SegmentSymtab");
-                };
-                stdout.print(" Symtab \n", .{}) catch {};
-            },
-            .dysymtab => {
-                var segment = command.Dysymtab.read(stream) catch {
-                    @panic("Faild to read SegmentDysymtab");
-                };
-                stdout.print(" Dysymtab \n", .{}) catch {};
-            },
-            .dyld_info_only => {
-                var segment = command.DylibInfoOnly.read(stream) catch {
-                    @panic("Faild to read SegmentDylibInfoOnly");
-                };
-                stdout.print(" SegmentDylibInfoOnly \n", .{}) catch {};
-            },
-            .load_dylinker => {
-                var segment = command.LoadDylinker.read(stream, allocator) catch |err| {
-                    stdout.print("Error: {}\n", .{err}) catch {};
-                    @panic("Faild to read SegmentLoadDylinker");
-                };
-                defer segment.free(allocator);
-                stdout.print(" SegmentLoadDylinker - {} \n", .{segment.name}) catch {};
-            },
-            .version_min_macosx => {
-                var segment = command.VersionMinMacOSX.read(stream) catch |err| {
-                    warn("Error: {}\n", .{err});
-                    @panic("Faild to read VersionMinMacOSX");
-                };
-                stdout.print(" VersionMinMacOSX - {} \n", .{segment.version}) catch {};
-            },
-            .source_version => {
-                var segment = command.SourceVersion.read(stream) catch |err| {
-                    warn("Error: {}\n", .{err});
-                    @panic("Faild to read SourceVersion");
-                };
-                stdout.print(" SourceVersion - {} \n", .{segment.version}) catch {};
-            },
-            .main => {
-                var segment = command.Main.read(stream) catch |err| {
-                    warn("Error: {}\n", .{@errorName(err)});
-                    @panic("Faild to read Main");
-                };
-                stdout.print(" Main - {}\n", .{segment.entry_offset}) catch {};
-            },
-            .load_dylib => {
-                var segment = command.LoadDlib.read(stream, allocator) catch |err| {
-                    warn("Error: {}\n", .{err});
-                    @panic("Faild to read LoadDlib");
-                };
-                defer segment.free(allocator);
-                log.warn(.Debug, "Test\n", .{});
-                stdout.print(" LoadDlib - {} \n", .{segment.name}) catch {};
-            },
-            .function_starts => {
-                var segment = command.FunctionStarts.read(stream) catch |err| {
-                    stdout.print("Error: {}\n", .{err}) catch {};
-                    @panic("Faild to read FunctionStarts");
-                };
-                stdout.print(" FunctionStarts\n", .{}) catch {};
-            },
-            .data_in_code => {
-                var segment = command.DataInCode.read(stream) catch |err| {
-                    stdout.print("Error: {}\n", .{err}) catch {};
-                    @panic("Faild to read DataInCoden");
-                };
-                stdout.print(" DataInCode\n", .{}) catch {};
-            },
-            .uuid => {
-                var segment = command.UUID.read(stream) catch |err| {
-                    stdout.print("Error: {}\n", .{err}) catch {};
-                    @panic("Faild to read UUID");
-                };
-                stdout.print(" UUID\n", .{}) catch {};
-            },
-            .undef => {
-                std.debug.panic("Undefined command: {}\n", .{cmdInt});
-            },
-            else => {
-                var size = stream.readIntNative(u32) catch {
-                    @panic("Faild to read size");
-                };
-                var sizeLeft = size - @sizeOf(command.Type) - @sizeOf(u32);
-                stdout.print(" - {} - not parsed load command\n", .{cmd}) catch {};
-                stream.skipBytes(sizeLeft) catch {};
-            },
+                else => {},
+            }
         }
     }
-}
+ }
