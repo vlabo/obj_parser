@@ -1,6 +1,21 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
+const cpu = @import("cpu.zig");
+
+const FileType = enum(u32) {
+    object = 0x1,
+    executable = 0x2,
+    fvmlib = 0x3,
+    core = 0x4,
+    preload = 0x5,
+    dylib = 0x6,
+    dylink = 0x7,
+    bundle = 0x8,
+    sulib_stub = 0x9,
+    dsym = 0xA,
+    kext_bundle = 0xB,
+};
 
 pub const Type = enum(u32) {
     undef = 0x0,
@@ -50,6 +65,50 @@ pub const Type = enum(u32) {
     main = (0x28 | 0x80000000),
     data_in_code = 0x29,
     source_version = 0x2A,
+
+    fn to_type(self: Type) comptime type {
+        switch (self) {
+            .segment64 => {
+                return Segment64;
+            },
+            .symtab => {
+                return Symtab;
+            },
+            .dysymtab => {
+                return Dysymtab;
+            },
+            .dyld_info_only => {
+                return DylibInfoOnly;
+            },
+            .load_dylinker => {
+                return LoadDylinker;
+            },
+            .version_min_macosx => {
+                return VersionMinMacOSX;
+            },
+            .source_version => {
+                return SourceVersion;
+            },
+            .main => {
+                return Main;
+            },
+            .load_dylib => {
+                return LoadDlib;
+            },
+            .function_starts => {
+                return FunctionStarts;
+            },
+            .data_in_code => {
+                return DataInCode;
+            },
+            .uuid => {
+                return UUID;
+            },
+            else => {
+                return void;
+            },
+        }
+    }
 };
 
 pub const Segment64 = struct {
@@ -69,7 +128,7 @@ pub const Segment64 = struct {
 
     pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
         var size = try stream.readIntNative(u32);
-        var segment_name = [1]u8 {0} ** 16;
+        var segment_name = [1]u8{0} ** 16;
         _ = try stream.readAll(&segment_name);
         var vmaddr = try stream.readIntNative(u64);
         var vmsize = try stream.readIntNative(u64);
@@ -81,8 +140,8 @@ pub const Segment64 = struct {
         var flags = try stream.readIntNative(u32);
         var sections = try allocator.alloc(Segment64Header, number_of_sections);
         var i: u32 = 0;
-        while(i < number_of_sections) : (i+=1) {
-           sections[i] = try Segment64Header.read(stream, allocator);
+        while (i < number_of_sections) : (i += 1) {
+            sections[i] = try Segment64Header.read(stream, allocator);
         }
 
         return Self{
@@ -147,7 +206,7 @@ pub const Segment64Header = struct {
             .flags = flags,
             .reserved = reserved,
         };
-    } 
+    }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
@@ -221,7 +280,7 @@ pub const Dysymtab = struct {
         self.locreloff = try stream.readIntNative(u32);
         self.nlocrel = try stream.readIntNative(u32);
         return self;
-    } 
+    }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
@@ -257,7 +316,7 @@ pub const DylibInfoOnly = struct {
             .export_info_size = try stream.readIntNative(u32),
         };
     }
- 
+
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
@@ -317,7 +376,7 @@ pub const SourceVersion = struct {
             .size = try stream.readIntNative(u32),
             .version = try stream.readIntNative(u64),
         };
-    } 
+    }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
@@ -389,7 +448,7 @@ pub const FunctionStarts = struct {
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
         };
-    } 
+    }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
@@ -408,7 +467,7 @@ pub const DataInCode = struct {
             .data_offset = try stream.readIntNative(u32),
             .data_size = try stream.readIntNative(u32),
         };
-    } 
+    }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
@@ -431,4 +490,218 @@ pub const UUID = struct {
     }
 
     pub fn free(self: Self, allocator: *Allocator) void {}
+};
+
+pub const Header = packed struct {
+    magic: u32 = 0,
+    cpu_type: cpu.Type = .any,
+    cpu_sub_type: u32 = 0,
+    file_type: FileType = .object,
+    number_of_load_commands: u32 = 0,
+    size_of_load_commands: u32 = 0,
+    flags: u32 = 0,
+    reserved: u32 = 0,
+
+    pub fn print(h: Header, stdout: File.OutStream) !void {
+        try stdout.print(
+            \\Header:
+            \\ Magic: 0x{x}
+            \\ CPU Type: {}
+            \\ CPU Sub Type: 0x{x}
+            \\ File type: {}
+            \\ Number of commands: {}
+            \\ Size of load commands: {}
+            \\ Flags: 0x{x}
+            \\
+            \\
+        , .{ h.magic, h.cpu_type, h.cpu_sub_type, h.file_type, h.number_of_load_commands, h.size_of_load_commands, h.flags });
+    }
+};
+
+pub const ObjFile = struct {
+    header: Header,
+    load_commands: []usize,
+
+    const Self = ObjFile;
+    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
+        var header = try stream.readStruct(Header);
+        var i: u32 = 0;
+        var load_commands = try allocator.alloc(usize, header.number_of_load_commands);
+
+        while (i < header.number_of_load_commands) : (i += 1) {
+            var cmdInt = try stream.readIntNative(u32);
+            var cmd = @intToEnum(Type, cmdInt);
+            switch (cmd) {
+                .segment64 => {
+                    load_commands[i] = try Self.create_command(Type.segment64.to_type(), stream, allocator);
+                },
+                .symtab => {
+                    load_commands[i] = try Self.create_command(Type.symtab.to_type(), stream, allocator);
+                },
+                .dysymtab => {
+                    load_commands[i] = try Self.create_command(Type.dysymtab.to_type(), stream, allocator);
+                },
+                .dyld_info_only => {
+                    load_commands[i] = try Self.create_command(Type.dyld_info_only.to_type(), stream, allocator);
+                },
+                .load_dylinker => {
+                    load_commands[i] = try Self.create_command(Type.load_dylinker.to_type(), stream, allocator);
+                },
+                .version_min_macosx => {
+                    load_commands[i] = try Self.create_command(Type.version_min_macosx.to_type(), stream, allocator);
+                },
+                .source_version => {
+                    load_commands[i] = try Self.create_command(Type.source_version.to_type(), stream, allocator);
+                },
+                .main => {
+                    load_commands[i] = try Self.create_command(Type.main.to_type(), stream, allocator);
+                },
+                .load_dylib => {
+                    load_commands[i] = try Self.create_command(Type.load_dylib.to_type(), stream, allocator);
+                },
+                .function_starts => {
+                    load_commands[i] = try Self.create_command(Type.function_starts.to_type(), stream, allocator);
+                },
+                .data_in_code => {
+                    load_commands[i] = try Self.create_command(Type.data_in_code.to_type(), stream, allocator);
+                },
+                .uuid => {
+                    load_commands[i] = try Self.create_command(Type.uuid.to_type(), stream, allocator);
+                },
+                else => {
+                    load_commands[i] = 0;
+                    var size = try stream.readIntNative(u32);
+                    try stream.skipBytes(size - 8);
+                },
+            }
+        }
+        return Self{
+            .header = header,
+            .load_commands = load_commands,
+        };
+    }
+
+    fn create_command(comptime command_type: type, stream: File.Reader, allocator: *Allocator) !usize {
+        var command = try allocator.create(command_type);
+        command.* = try command_type.read(stream, allocator);
+        return @ptrToInt(command);
+    }
+
+    pub fn print(self: Self, stdout: File.OutStream) !void {
+        for (self.load_commands) |load_command| {
+            if (load_command != 0) {
+                var command_type = @intToPtr(*Type, load_command);
+
+                switch (command_type.*) {
+                    .segment64 => {
+                        var command = @intToPtr(*Segment64, load_command);
+                        try stdout.print(" Segment 64 - {}\n", .{command.segment_name});
+
+                        var sections_count = command.number_of_sections;
+                        for (command.sections) |section| {
+                            try stdout.print("\t SegmentHeader - {}\n", .{section.section_name});
+                        }
+                    },
+                    .symtab => {
+                        var command = @intToPtr(*Symtab, load_command);
+                        try stdout.print(" Symtab \n", .{});
+                    },
+                    .dysymtab => {
+                        var command = @intToPtr(*Dysymtab, load_command);
+                        try stdout.print(" Dysymtab \n", .{});
+                    },
+                    .dyld_info_only => {
+                        var command = @intToPtr(*DylibInfoOnly, load_command);
+                        try stdout.print(" SegmentDylibInfoOnly \n", .{});
+                    },
+                    .load_dylinker => {
+                        var command = @intToPtr(*LoadDylinker, load_command);
+                        try stdout.print(" SegmentLoadDylinker - {} \n", .{command.name});
+                    },
+                    .version_min_macosx => {
+                        var command = @intToPtr(*VersionMinMacOSX, load_command);
+                        try stdout.print(" VersionMinMacOSX - {} \n", .{command.version});
+                    },
+                    .source_version => {
+                        var command = @intToPtr(*SourceVersion, load_command);
+                        try stdout.print(" SourceVersion - {} \n", .{command.version});
+                    },
+                    .main => {
+                        var command = @intToPtr(*Main, load_command);
+                        try stdout.print(" Main - {}\n", .{command.entry_offset});
+                    },
+                    .load_dylib => {
+                        var command = @intToPtr(*LoadDlib, load_command);
+                        try stdout.print(" LoadDlib - {} \n", .{command.name});
+                    },
+                    .function_starts => {
+                        var command = @intToPtr(*FunctionStarts, load_command);
+                        try stdout.print(" FunctionStarts\n", .{});
+                    },
+                    .data_in_code => {
+                        var command = @intToPtr(*DataInCode, load_command);
+                        try stdout.print(" DataInCode\n", .{});
+                    },
+                    .uuid => {
+                        var command = @intToPtr(*UUID, load_command);
+                        try stdout.print(" UUID\n", .{});
+                    },
+                    .undef => {
+                        std.debug.panic("Undefined command\n", .{});
+                    },
+
+                    else => {},
+                }
+            }
+        }
+    }
+
+    fn free_list(self: Self, allocator: *Allocator) void {
+        for(self.load_commands) |load_command| {
+            var command_type = @intToPtr(*Type, load_command).*;
+            switch (command_type) {
+                .segment64 => {
+                    @intToPtr(*Type.segment64.to_type(), load_command).free(allocator);
+                },
+                .symtab => {
+                    @intToPtr(*Type.symtab.to_type(), load_command).free(allocator);
+                },
+                .dysymtab => {
+                    @intToPtr(*Type.dysymtab.to_type(), load_command).free(allocator);
+                },
+                .dyld_info_only => {
+                    @intToPtr(*Type.dyld_info_only.to_type(), load_command).free(allocator);
+                },
+                .load_dylinker => {
+                    @intToPtr(*Type.load_dylinker.to_type(), load_command).free(allocator);
+                },
+                .version_min_macosx => {
+                    @intToPtr(*Type.version_min_macosx.to_type(), load_command).free(allocator);
+                },
+                .source_version => {
+                    @intToPtr(*Type.source_version.to_type(), load_command).free(allocator);
+                },
+                .main => {
+                    @intToPtr(*Type.main.to_type(), load_command).free(allocator);
+                },
+                .load_dylib => {
+                    @intToPtr(*Type.load_dylib.to_type(), load_command).free(allocator);
+                },
+                .function_starts => {
+                    @intToPtr(*Type.function_starts.to_type(), load_command).free(allocator);
+                },
+                .data_in_code => {
+                    @intToPtr(*Type.data_in_code.to_type(), load_command).free(allocator);
+                },
+                .uuid => {
+                    @intToPtr(*Type.uuid.to_type(), load_command).free(allocator);
+                },
+                else => {},
+            }
+        }
+    }
+    pub fn free(self: Self, allocator: *Allocator) void {
+        self.free_list(allocator);
+        allocator.free(self.load_commands);
+    }
 };
