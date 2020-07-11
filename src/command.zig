@@ -69,12 +69,7 @@ pub const Type = enum(u32) {
 
 const Command = struct {
     @"type": Type,
-    print: fn (cmd: *Command, stdout: File.OutStream) File.WriteError!void = Command.default_print,
     free: fn (cmd: *Command, allocator: *Allocator) void = Command.default_free,
-
-    fn default_print(cmd: *Command, stdout: File.OutStream) File.WriteError!void {
-        std.debug.panic("Undefined command\n", .{});
-    }
 
     fn default_free() void {}
 };
@@ -82,7 +77,6 @@ const Command = struct {
 pub const Segment64 = struct {
     cmd: Command = Command{
         .type = Type.segment64,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -129,16 +123,6 @@ pub const Segment64 = struct {
             .flags = flags,
             .sections = sections,
         };
-    }
-
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*Segment64, self);
-        try stdout.print(" Segment 64 - {}\n", .{command.segment_name});
-
-        var sections_count = command.number_of_sections;
-        for (command.sections) |section| {
-            try stdout.print("\t SegmentHeader - {}\n", .{section.section_name});
-        }
     }
 
     pub fn free(self: *Command, allocator: *Allocator) void {
@@ -190,14 +174,13 @@ pub const Segment64Header = struct {
             .reserved = reserved,
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {}
+
     pub fn free(self: Self, allocator: *Allocator) void {}
 };
 
 pub const Symtab = struct {
     cmd: Command = Command{
         .type = .symtab,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -218,17 +201,13 @@ pub const Symtab = struct {
         };
         return self;
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*Symtab, self);
-        try stdout.print(" Symtab \n", .{});
-    }
+
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const Dysymtab = struct {
     cmd: Command = Command{
         .type = .dysymtab,
-        .print = Self.print,
         .free = Self.free,
     },
     cmdsize: u32,
@@ -278,18 +257,12 @@ pub const Dysymtab = struct {
         return self;
     }
 
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*Dysymtab, self);
-        try stdout.print(" Dysymtab \n", .{});
-    }
-
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const DylibInfoOnly = struct {
     cmd: Command = Command{
         .type = .dyld_info_only,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -322,17 +295,12 @@ pub const DylibInfoOnly = struct {
         };
     }
 
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*DylibInfoOnly, self);
-        try stdout.print(" SegmentDylibInfoOnly \n", .{});
-    }
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const LoadDylinker = struct {
     cmd: Command = Command{
         .type = .load_dylinker,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -353,11 +321,6 @@ pub const LoadDylinker = struct {
         };
     }
 
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*LoadDylinker, self);
-        try stdout.print(" SegmentLoadDylinker - {} \n", .{command.name});
-    }
-
     pub fn free(self: *Command, allocator: *Allocator) void {
         allocator.free(@ptrCast(*LoadDylinker, self).name);
     }
@@ -366,7 +329,6 @@ pub const LoadDylinker = struct {
 pub const VersionMinMacOSX = struct {
     cmd: Command = Command{
         .type = .version_min_macosx,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -383,18 +345,12 @@ pub const VersionMinMacOSX = struct {
         };
     }
 
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*VersionMinMacOSX, self);
-        try stdout.print(" VersionMinMacOSX - {} \n", .{command.version});
-    }
-
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const SourceVersion = struct {
     cmd: Command = Command{
         .type = .source_version,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -409,17 +365,12 @@ pub const SourceVersion = struct {
         };
     }
 
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*SourceVersion, self);
-        try stdout.print(" SourceVersion - {} \n", .{command.version});
-    }
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const Main = struct {
     cmd: Command = Command{
         .type = .main,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -435,17 +386,13 @@ pub const Main = struct {
             .stack_size = try stream.readIntNative(u64),
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*Main, self);
-        try stdout.print(" Main - {}\n", .{command.entry_offset});
-    }
+
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const LoadDlib = struct {
     cmd: Command = Command{
         .type = .load_dylib,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -474,10 +421,7 @@ pub const LoadDlib = struct {
             .name = name,
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*LoadDlib, self);
-        try stdout.print(" LoadDlib - {} \n", .{command.name});
-    }
+
     pub fn free(self: *Command, allocator: *Allocator) void {
         allocator.free(@ptrCast(*Self, self).name);
     }
@@ -486,7 +430,6 @@ pub const LoadDlib = struct {
 pub const FunctionStarts = struct {
     cmd: Command = Command{
         .type = .function_starts,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -502,17 +445,12 @@ pub const FunctionStarts = struct {
             .data_size = try stream.readIntNative(u32),
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*FunctionStarts, self);
-        try stdout.print(" FunctionStarts\n", .{});
-    }
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const DataInCode = struct {
     cmd: Command = Command{
         .type = .data_in_code,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -528,17 +466,12 @@ pub const DataInCode = struct {
             .data_size = try stream.readIntNative(u32),
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*DataInCode, self);
-        try stdout.print(" DataInCode\n", .{});
-    }
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
 pub const UUID = struct {
     cmd: Command = Command{
         .type = .uuid,
-        .print = Self.print,
         .free = Self.free,
     },
     size: u32,
@@ -555,10 +488,7 @@ pub const UUID = struct {
             .uuid = uuid,
         };
     }
-    pub fn print(self: *Command, stdout: File.OutStream) !void {
-        var command = @ptrCast(*UUID, self);
-        try stdout.print(" UUID\n", .{});
-    }
+
     pub fn free(self: *Command, allocator: *Allocator) void {}
 };
 
@@ -588,12 +518,75 @@ pub const Header = packed struct {
     }
 };
 
+pub const Section = struct {
+    data: []u8,
+
+    const Self = Section;
+
+    fn read(file: File, allocator: *Allocator, section_header: *const Segment64Header) !Self {
+        try file.seekTo(section_header.offset);
+        var data = try allocator.alloc(u8, section_header.size);
+        _ = try file.read(data);
+        return Self{ .data = data };
+    }
+
+    fn free(self: Self, allocator: *Allocator) void {
+        allocator.free(self.data);
+    }
+};
+
+pub const DynamicLoaderInfo = struct {
+    rebase_info: []u8,
+    bindings_info: []u8,
+    weak_bindings_info: []u8,
+    lazy_bindigs_info: []u8,
+    export_info: []u8,
+
+    const Self = DynamicLoaderInfo;
+    fn read(file: File, allocator: *Allocator, header: *DylibInfoOnly) !Self {
+        var self: Self = undefined;
+
+        self.rebase_info = try allocator.alloc(u8, header.rebase_info_size);
+        try file.seekTo(header.rebase_info_offset);
+        _ = try file.read(self.rebase_info);
+
+        self.bindings_info = try allocator.alloc(u8, header.binding_info_size);
+        try file.seekTo(header.binding_info_offset);
+        _ = try file.read(self.bindings_info);
+
+        self.weak_bindings_info = try allocator.alloc(u8, header.weak_binding_info_size);
+        try file.seekTo(header.weak_binding_info_offset);
+        _ = try file.read(self.weak_bindings_info);
+
+        self.lazy_bindigs_info = try allocator.alloc(u8, header.lazy_binding_info_size);
+        try file.seekTo(header.lazy_binding_info_offset);
+        _ = try file.read(self.lazy_bindigs_info);
+
+        self.export_info = try allocator.alloc(u8, header.export_info_size);
+        try file.seekTo(header.export_info_offset);
+        _ = try file.read(self.export_info);
+
+        return self;
+    }
+
+    fn free(self: Self, allocator: *Allocator) void {
+        allocator.free(self.rebase_info);
+        allocator.free(self.bindings_info);
+        allocator.free(self.weak_bindings_info);
+        allocator.free(self.lazy_bindigs_info);
+        allocator.free(self.export_info);
+    }
+};
+
 pub const ObjFile = struct {
     header: Header,
     load_commands: []usize,
+    sections: []Section,
+    dyld_info: DynamicLoaderInfo,
 
     const Self = ObjFile;
-    pub fn read(stream: File.Reader, allocator: *Allocator) !Self {
+    pub fn read(file: File, allocator: *Allocator) !Self {
+        var stream = file.reader();
         var header = try stream.readStruct(Header);
         var i: u32 = 0;
         var load_commands = try allocator.alloc(usize, header.number_of_load_commands);
@@ -645,9 +638,46 @@ pub const ObjFile = struct {
                 },
             }
         }
+
+        var sections: []Section = undefined;
+        var dyld_info: DynamicLoaderInfo = undefined;
+        sections.len = 0;
+        for (load_commands) |command_pointer| {
+            var cmd = @intToPtr(*Command, command_pointer);
+
+            switch (cmd.type) {
+                .segment64 => {
+                    var segment = @ptrCast(*Segment64, cmd);
+                    var current_sections: []Section = try allocator.alloc(Section, segment.sections.len);
+
+                    var j: u32 = 0;
+                    for (segment.sections) |section_header| {
+                        current_sections[j] = try Section.read(file, allocator, &section_header);
+                        j += 1;
+                    }
+                    if (sections.len == 0) {
+                        sections = current_sections;
+                    } else {
+                        var current_size = sections.len - 1;
+                        sections = try allocator.realloc(sections, sections.len + current_sections.len);
+                        std.mem.copy(Section, sections[current_size..], current_sections);
+                        allocator.free(current_sections);
+                    }
+                },
+                .dyld_info_only => {
+                    var segment = @ptrCast(*DylibInfoOnly, cmd);
+                    dyld_info = try DynamicLoaderInfo.read(file, allocator, segment);
+
+                },
+                else => {},
+            }
+        }
+
         return Self{
             .header = header,
             .load_commands = load_commands,
+            .sections = sections,
+            .dyld_info = dyld_info,
         };
     }
 
@@ -658,23 +688,29 @@ pub const ObjFile = struct {
     }
 
     pub fn print(self: Self, stdout: File.OutStream) !void {
-        for (self.load_commands) |load_command| {
-            if (load_command != 0) {
-                var command_type = @intToPtr(*Type, load_command);
-                var command = @intToPtr(*Command, load_command);
-                try command.print(command, stdout);
-            }
+        try stdout.print("Sections:\n", .{});
+        for (self.sections) |section| {
+            try stdout.print(" Section size: {}\n", .{section.data.len});
         }
+
+        try stdout.print("Dynamic Loader info:\n", .{});
+        try stdout.print(" Rebase: {}\n", .{self.dyld_info.rebase_info.len});
+        try stdout.print(" Bindings: {}\n", .{self.dyld_info.bindings_info.len});
+        try stdout.print(" Weak: {}\n", .{self.dyld_info.weak_bindings_info.len});
+        try stdout.print(" Lazy: {}\n", .{self.dyld_info.lazy_bindigs_info.len});
+        try stdout.print(" Export: {}\n", .{self.dyld_info.export_info.len});
     }
 
-    fn free_list(self: Self, allocator: *Allocator) void {
+    pub fn free(self: Self, allocator: *Allocator) void {
         for (self.load_commands) |load_command| {
             var cmd = @intToPtr(*Command, load_command);
             cmd.free(cmd, allocator);
         }
-    }
-    pub fn free(self: Self, allocator: *Allocator) void {
-        self.free_list(allocator);
         allocator.free(self.load_commands);
+
+        for (self.sections) |section| {
+            section.free(allocator);
+        }
+        allocator.free(self.sections);
     }
 };

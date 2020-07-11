@@ -27,8 +27,7 @@ pub fn main() anyerror!void {
         std.debug.panic(" Unable to open File: {}\n", .{err});
     };
 
-    var stream = file.inStream();
-    var obj = try ObjFile.read(stream, allocator);
+    var obj = try ObjFile.read(file, allocator);
     defer obj.free(allocator);
 
     obj.header.print(stdout) catch {};
